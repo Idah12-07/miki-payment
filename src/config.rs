@@ -1,0 +1,151 @@
+//! Environment-driven configuration.
+//!
+//! Every secret and host name comes from the environment. Nothing in this
+//! file contains a literal credential, and error messages name the variable
+//! without echoing its value.
+
+use std::env;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("missing required environment variable: {0}")]
+    MissingVar(&'static str),
+
+    #[error("invalid value for environment variable {name}")]
+    InvalidVar { name: &'static str },
+}
+
+/// Where the database lives, expressed without ever building a URL by
+/// string concatenation (a password containing `@` or `:` stays safe).
+#[derive(Debug, Clone)]
+pub struct DatabaseConfig {
+    pub host: String,
+    pub port: u16,
+    pub name: String,
+    pub user: String,
+    pub password: String,
+}
+
+/// BTCPay Server credentials. All optional: nothing talks to Bitcoin yet.
+#[derive(Debug, Clone, Default)]
+pub struct BtcpayConfig {
+    pub url: Option<String>,
+    pub store_id: Option<String>,
+    pub api_key: Option<String>,
+}
+
+impl BtcpayConfig {
+    /// True only when every credential is present.
+    pub fn is_complete(&self) -> bool {
+        self.url.is_some() && self.store_id.is_some() && self.api_key.is_some()
+    }
+
+    /// Number of variables set, used to warn about partial configuration.
+    pub fn set_count(&self) -> usize {
+        [self.url.is_some(), self.store_id.is_some(), self.api_key.is_some()]
+            .iter()
+            .filter(|&&v| v)
+            .count()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub server_port: u16,
+    pub database: DatabaseConfig,
+    pub btcpay: BtcpayConfig,
+}
+
+fn read(name: &'static str) -> Result<Option<String>, ConfigError> {
+    match env::var(name) {
+        Ok(v) if v.trim().is_empty() => Ok(None),
+        Ok(v) => Ok(Some(v)),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => Err(ConfigError::InvalidVar { name }),
+    }
+}
+
+fn read_required(name: &'static str) -> Result<String, ConfigError> {
+    read(name)?.ok_or(ConfigError::MissingVar(name))
+}
+
+fn read_port(name: &'static str, default: u16) -> Result<u16, ConfigError> {
+    match read(name)? {
+        None => Ok(default),
+        Some(v) => v.parse().map_err(|_| ConfigError::InvalidVar { name }),
+    }
+}
+
+impl Config {
+    /// Load configuration from the process environment (and `.env`, if present).
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let database = if let Some(url) = read("DATABASE_URL")? {
+            // Split so the password never needs re-encoding into a new URL.
+            parse_database_url(&url)?
+        } else {
+            DatabaseConfig {
+                host: read("DB_HOST")?.unwrap_or_else(|| "127.0.0.1".to_string()),
+                port: read_port("DB_PORT", 3306)?,
+                name: read("DB_NAME")?.unwrap_or_else(|| "miki_payment".to_string()),
+                user: read_required("DB_USER")?,
+                password: read_required("DB_PASSWORD")?,
+            }
+        };
+
+        let btcpay = BtcpayConfig {
+            url: read("BTCPAY_URL")?,
+            store_id: read("BTCPAY_STORE_ID")?,
+            api_key: read("BTCPAY_API_KEY")?,
+        };
+
+        Ok(Self {
+            server_port: read_port("SERVER_PORT", 3000)?,
+            database,
+            btcpay,
+        })
+    }
+}
+
+/// Minimal `mysql://user:pass@host:port/db` parsing without pulling in a URL
+/// crate. Rejects anything that does not match the expected shape.
+fn parse_database_url(url: &str) -> Result<DatabaseConfig, ConfigError> {
+    let rest = url
+        .strip_prefix("mysql://")
+        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+
+    let (authority, name) = rest
+        .split_once('/')
+        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+    let name = name
+        .split('?')
+        .next()
+        .unwrap_or_default();
+
+    let (credentials, host) = authority
+        .rsplit_once('@')
+        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+
+    let (user, password) = credentials
+        .split_once(':')
+        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+
+    let (host, port) = match host.rsplit_once(':') {
+        Some((h, p)) => (
+            h.to_string(),
+            p.parse().map_err(|_| ConfigError::InvalidVar { name: "DATABASE_URL" })?,
+        ),
+        None => (host.to_string(), 3306u16),
+    };
+
+    if user.is_empty() || name.is_empty() {
+        return Err(ConfigError::InvalidVar { name: "DATABASE_URL" });
+    }
+
+    Ok(DatabaseConfig {
+        host,
+        port,
+        name: name.to_string(),
+        user: user.to_string(),
+        password: password.to_string(),
+    })
+}

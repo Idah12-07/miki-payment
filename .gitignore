@@ -1,0 +1,8 @@
+# Build artefacts
+/target/
+
+# Real secrets live only here — never commit this file
+.env
+
+# Local scratch
+*.log
