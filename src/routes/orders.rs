@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::models::order::{self, NewOrder, Order, OrderDetail};
+use crate::services;
+use crate::services::invoice::InvoicePaymentInfo;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -84,4 +86,29 @@ pub async fn get_order(
     Path(id): Path<i64>,
 ) -> Result<Json<OrderDetail>, ApiError> {
     Ok(Json(order::find_detail(&state.pool, id).await?))
+}
+
+/// `POST /api/v1/orders/{order_id}/invoice`
+///
+/// Creates (or reuses) a BTCPay invoice for the stored order. The
+/// handler is deliberately thin: no request body is read, so the client
+/// can never influence the amount or currency — those come from the
+/// stored order inside the service.
+pub async fn create_invoice(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<(StatusCode, Json<InvoicePaymentInfo>), ApiError> {
+    let btcpay = state
+        .btcpay
+        .as_ref()
+        .ok_or(ApiError::NotConfigured)?;
+
+    let (info, created) = services::invoice::create_for_order(&state.pool, btcpay, id).await?;
+
+    let status = if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(info)))
 }

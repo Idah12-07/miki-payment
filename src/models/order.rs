@@ -86,6 +86,22 @@ where
         .await
 }
 
+/// Lock an order row for the duration of the caller's transaction.
+///
+/// Serializes invoice creation per order: the check for an existing
+/// invoice and the placeholder insert happen atomically. Must only be
+/// used inside a short, database-only transaction — never held across
+/// network calls.
+pub async fn lock_by_id(
+    tx: &mut sqlx::Transaction<'_, MySql>,
+    id: i64,
+) -> Result<Option<Order>, sqlx::Error> {
+    sqlx::query_as::<_, Order>("SELECT * FROM orders WHERE id = ? FOR UPDATE")
+        .bind(id)
+        .fetch_optional(tx.as_mut())
+        .await
+}
+
 /// Fetch an order together with its user and all related records.
 pub async fn find_detail(pool: &MySqlPool, id: i64) -> Result<OrderDetail, ApiError> {
     let order = find_by_id(pool, id)
@@ -109,4 +125,63 @@ pub async fn find_detail(pool: &MySqlPool, id: i64) -> Result<OrderDetail, ApiEr
         payments,
         transactions,
     })
+}
+
+/// Settle an order: `paid` unless it was explicitly cancelled.
+///
+/// `expired` is included deliberately — a payment that arrives after the
+/// order was expired still has to be recorded as paid. Only `cancelled`
+/// is sticky, and the guard makes the statement idempotent: a replayed
+/// webhook reports `rows_affected = 0` when the order is already paid.
+pub async fn mark_paid(
+    tx: &mut sqlx::Transaction<'_, MySql>,
+    order_id: i64,
+    now: NaiveDateTime,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE orders
+         SET status = 'paid', updated_at = ?
+         WHERE id = ? AND status IN ('pending', 'processing', 'expired')",
+    )
+    .bind(now)
+    .bind(order_id)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+/// Expire an order when none of its other invoices can still be paid.
+///
+/// An order may hold several invoices over its lifetime (one per attempt
+///); expiring it because *one* of them lapsed while another is still
+/// active would lock a paying customer out. The `NOT EXISTS` clause
+/// skips that case, and `status IN (...)` keeps the update idempotent
+/// and prevents a cancelled or already paid order from being expired.
+pub async fn mark_expired(
+    tx: &mut sqlx::Transaction<'_, MySql>,
+    order_id: i64,
+    lapsed_invoice_id: i64,
+    now: NaiveDateTime,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE orders
+         SET status = 'expired', updated_at = ?
+         WHERE id = ?
+           AND status IN ('pending', 'processing')
+           AND NOT EXISTS (
+               SELECT 1 FROM invoices i
+               WHERE i.order_id = ?
+                 AND i.id <> ?
+                 AND i.status IN ('pending', 'processing')
+           )",
+    )
+    .bind(now)
+    .bind(order_id)
+    .bind(order_id)
+    .bind(lapsed_invoice_id)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(result.rows_affected() == 1)
 }

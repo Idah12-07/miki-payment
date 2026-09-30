@@ -27,25 +27,58 @@ pub struct DatabaseConfig {
 }
 
 /// BTCPay Server credentials. All optional: nothing talks to Bitcoin yet.
-#[derive(Debug, Clone, Default)]
+///
+/// `Debug` is hand-written so that a stray `{:?}` of the config can never
+/// print the API key or the webhook secret.
+#[derive(Clone, Default)]
 pub struct BtcpayConfig {
     pub url: Option<String>,
     pub store_id: Option<String>,
     pub api_key: Option<String>,
+    /// Shared secret of the BTCPay webhook that points at this server.
+    pub webhook_secret: Option<String>,
+    /// Public URL of `POST /api/webhooks/btcpay`. When set (together with
+    /// the secret) the webhook is registered on the store at startup.
+    pub webhook_url: Option<String>,
+}
+
+impl std::fmt::Debug for BtcpayConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn shown<T>(value: &Option<T>) -> &'static str {
+            if value.is_some() {
+                "<set>"
+            } else {
+                "<unset>"
+            }
+        }
+        f.debug_struct("BtcpayConfig")
+            .field("url", &self.url)
+            .field("store_id", &self.store_id)
+            .field("api_key", &shown(&self.api_key))
+            .field("webhook_secret", &shown(&self.webhook_secret))
+            .field("webhook_url", &self.webhook_url)
+            .finish()
+    }
 }
 
 impl BtcpayConfig {
-    /// True only when every credential is present.
+    /// True only when every invoice-creation credential is present.
     pub fn is_complete(&self) -> bool {
         self.url.is_some() && self.store_id.is_some() && self.api_key.is_some()
     }
 
-    /// Number of variables set, used to warn about partial configuration.
+    /// Number of invoice-creation variables set, used to warn about a
+    /// partial configuration. The webhook variables are independent.
     pub fn set_count(&self) -> usize {
         [self.url.is_some(), self.store_id.is_some(), self.api_key.is_some()]
             .iter()
             .filter(|&&v| v)
             .count()
+    }
+
+    /// True when the webhook endpoint can verify signatures.
+    pub fn has_webhook_secret(&self) -> bool {
+        self.webhook_secret.is_some()
     }
 }
 
@@ -96,6 +129,8 @@ impl Config {
             url: read("BTCPAY_URL")?,
             store_id: read("BTCPAY_STORE_ID")?,
             api_key: read("BTCPAY_API_KEY")?,
+            webhook_secret: read("BTCPAY_WEBHOOK_SECRET")?,
+            webhook_url: read("BTCPAY_WEBHOOK_URL")?,
         };
 
         Ok(Self {

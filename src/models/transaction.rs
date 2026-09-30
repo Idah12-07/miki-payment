@@ -34,3 +34,35 @@ where
     .fetch_all(executor)
     .await
 }
+
+/// Append the ledger entry for a settled payment.
+///
+/// Callers must only invoke this when the invoice actually transitions
+/// to `paid` (inside the invoice row lock): the table has no uniqueness
+/// constraint, so the state transition — not the row itself — is what
+/// keeps duplicate webhook deliveries from writing the entry twice.
+/// `amount` is positive (a payment), `reference` is the BTCPay invoice
+/// id so the entry can be tied back to the provider.
+pub async fn insert_payment(
+    tx: &mut sqlx::Transaction<'_, MySql>,
+    payment_id: i64,
+    order_id: i64,
+    amount: i64,
+    currency: &str,
+    reference: &str,
+) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO transactions
+             (payment_id, order_id, txn_type, amount, currency, reference)
+         VALUES (?, ?, 'payment', ?, ?, ?)",
+    )
+    .bind(payment_id)
+    .bind(order_id)
+    .bind(amount)
+    .bind(currency)
+    .bind(reference)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(result.last_insert_id() as i64)
+}

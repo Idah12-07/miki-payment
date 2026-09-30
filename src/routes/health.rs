@@ -14,7 +14,10 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Value>) 
         .await;
 
     match db_up {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok", "database": "up" }))),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ "status": "ok", "database": "up" })),
+        ),
         Err(err) => {
             tracing::error!(error = %err, "health check: database unreachable");
             (
