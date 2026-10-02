@@ -70,10 +70,14 @@ impl BtcpayConfig {
     /// Number of invoice-creation variables set, used to warn about a
     /// partial configuration. The webhook variables are independent.
     pub fn set_count(&self) -> usize {
-        [self.url.is_some(), self.store_id.is_some(), self.api_key.is_some()]
-            .iter()
-            .filter(|&&v| v)
-            .count()
+        [
+            self.url.is_some(),
+            self.store_id.is_some(),
+            self.api_key.is_some(),
+        ]
+        .iter()
+        .filter(|&&v| v)
+        .count()
     }
 
     /// True when the webhook endpoint can verify signatures.
@@ -109,6 +113,27 @@ fn read_port(name: &'static str, default: u16) -> Result<u16, ConfigError> {
     }
 }
 
+/// Port the HTTP server listens on, in precedence order:
+///
+/// 1. `PORT` — injected by Railway and most PaaS platforms. It must win,
+///    otherwise the process listens on a port nothing routes to and the
+///    service never becomes reachable.
+/// 2. `SERVER_PORT` — used by local runs and the Docker image.
+/// 3. `3000` — final default.
+///
+/// A variable that is present but unparseable is an error, not a silent
+/// fallback, so a typo cannot ship unnoticed.
+fn read_server_port() -> Result<u16, ConfigError> {
+    for name in ["PORT", "SERVER_PORT"] {
+        if let Some(value) = read(name)? {
+            return value
+                .parse()
+                .map_err(|_| ConfigError::InvalidVar { name });
+        }
+    }
+    Ok(3000)
+}
+
 impl Config {
     /// Load configuration from the process environment (and `.env`, if present).
     pub fn from_env() -> Result<Self, ConfigError> {
@@ -134,7 +159,7 @@ impl Config {
         };
 
         Ok(Self {
-            server_port: read_port("SERVER_PORT", 3000)?,
+            server_port: read_server_port()?,
             database,
             btcpay,
         })
@@ -146,34 +171,37 @@ impl Config {
 fn parse_database_url(url: &str) -> Result<DatabaseConfig, ConfigError> {
     let rest = url
         .strip_prefix("mysql://")
-        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+        .ok_or(ConfigError::InvalidVar {
+            name: "DATABASE_URL",
+        })?;
 
-    let (authority, name) = rest
-        .split_once('/')
-        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
-    let name = name
-        .split('?')
-        .next()
-        .unwrap_or_default();
+    let (authority, name) = rest.split_once('/').ok_or(ConfigError::InvalidVar {
+        name: "DATABASE_URL",
+    })?;
+    let name = name.split('?').next().unwrap_or_default();
 
-    let (credentials, host) = authority
-        .rsplit_once('@')
-        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+    let (credentials, host) = authority.rsplit_once('@').ok_or(ConfigError::InvalidVar {
+        name: "DATABASE_URL",
+    })?;
 
-    let (user, password) = credentials
-        .split_once(':')
-        .ok_or(ConfigError::InvalidVar { name: "DATABASE_URL" })?;
+    let (user, password) = credentials.split_once(':').ok_or(ConfigError::InvalidVar {
+        name: "DATABASE_URL",
+    })?;
 
     let (host, port) = match host.rsplit_once(':') {
         Some((h, p)) => (
             h.to_string(),
-            p.parse().map_err(|_| ConfigError::InvalidVar { name: "DATABASE_URL" })?,
+            p.parse().map_err(|_| ConfigError::InvalidVar {
+                name: "DATABASE_URL",
+            })?,
         ),
         None => (host.to_string(), 3306u16),
     };
 
     if user.is_empty() || name.is_empty() {
-        return Err(ConfigError::InvalidVar { name: "DATABASE_URL" });
+        return Err(ConfigError::InvalidVar {
+            name: "DATABASE_URL",
+        });
     }
 
     Ok(DatabaseConfig {
@@ -183,4 +211,78 @@ fn parse_database_url(url: &str) -> Result<DatabaseConfig, ConfigError> {
         user: user.to_string(),
         password: password.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Sets `PORT` and `SERVER_PORT` for the duration of a closure and
+    /// restores their previous values (or absence) afterwards. Every case
+    /// runs inside this one test so no two cases can race on the process
+    /// environment.
+    struct PortEnv {
+        previous: [(&'static str, Option<String>); 2],
+    }
+
+    impl PortEnv {
+        fn set(port: Option<&str>, server_port: Option<&str>) -> Self {
+            let values = [("PORT", port), ("SERVER_PORT", server_port)];
+            let mut previous = Vec::new();
+            for (name, value) in values {
+                previous.push((name, env::var(name).ok()));
+                // SAFETY: only this test touches PORT/SERVER_PORT, and no
+                // other thread in this test binary reads them.
+                unsafe {
+                    match value {
+                        Some(v) => env::set_var(name, v),
+                        None => env::remove_var(name),
+                    }
+                }
+            }
+            Self {
+                previous: previous.try_into().unwrap(),
+            }
+        }
+    }
+
+    impl Drop for PortEnv {
+        fn drop(&mut self) {
+            for (name, value) in &self.previous {
+                unsafe {
+                    match value {
+                        Some(v) => env::set_var(name, v),
+                        None => env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn server_port_precedence_is_port_then_server_port_then_3000() {
+        {
+            let _env = PortEnv::set(Some("8080"), Some("9000"));
+            assert_eq!(read_server_port().unwrap(), 8080, "PORT wins");
+        }
+        {
+            let _env = PortEnv::set(Some("  "), Some("9000"));
+            assert_eq!(read_server_port().unwrap(), 9000, "blank PORT falls through");
+        }
+        {
+            let _env = PortEnv::set(None, Some("9000"));
+            assert_eq!(read_server_port().unwrap(), 9000, "SERVER_PORT is the fallback");
+        }
+        {
+            let _env = PortEnv::set(None, None);
+            assert_eq!(read_server_port().unwrap(), 3000, "final default");
+        }
+        {
+            let _env = PortEnv::set(Some("not-a-number"), None);
+            assert!(
+                matches!(read_server_port(), Err(ConfigError::InvalidVar { name: "PORT" })),
+                "an unparsable PORT is an error, not a silent fallback"
+            );
+        }
+    }
 }
