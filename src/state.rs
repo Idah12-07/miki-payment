@@ -18,7 +18,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(pool: MySqlPool, btcpay: Option<BtcpayClient>, webhook_secret: Option<String>) -> Self {
+    pub fn new(
+        pool: MySqlPool,
+        btcpay: Option<BtcpayClient>,
+        webhook_secret: Option<String>,
+    ) -> Self {
         Self {
             pool,
             btcpay,

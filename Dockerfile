@@ -29,8 +29,14 @@ RUN mkdir -p src \
     && cargo build --release --locked
 
 # Application layer: only the crate itself is recompiled from here on.
+# `COPY` preserves the mtimes of the build context, so the sources arrive
+# *older* than the placeholder binary built above. Cargo's freshness check
+# would then treat the crate as unchanged and ship the placeholder `fn main() {}`
+# stub (an empty binary that exits 0 immediately -> Railway 502). Touching the
+# sources first marks them newer than the artifact, forcing a real recompile.
 COPY src ./src
-RUN cargo build --release --locked \
+RUN find src -name '*.rs' -exec touch {} + \
+    && cargo build --release --locked \
     && strip target/release/miki-payment
 
 # --- Stage 2: runtime -------------------------------------------------------

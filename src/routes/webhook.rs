@@ -53,7 +53,10 @@ pub async fn btcpay_webhook(
 
     // Re-verification needs the provider client; without it nothing can
     // be confirmed, so nothing is applied.
-    let btcpay = state.btcpay.as_ref().ok_or(ApiError::WebhookNotConfigured)?;
+    let btcpay = state
+        .btcpay
+        .as_ref()
+        .ok_or(ApiError::WebhookNotConfigured)?;
 
     let outcome = webhook::process_event(&state.pool, btcpay, &event).await?;
 
@@ -139,7 +142,12 @@ mod tests {
 
     #[tokio::test]
     async fn missing_signature_is_rejected() {
-        let (status, body) = post(state_with_secret(Some(SECRET)), r#"{"type":"InvoiceSettled"}"#, None).await;
+        let (status, body) = post(
+            state_with_secret(Some(SECRET)),
+            r#"{"type":"InvoiceSettled"}"#,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(body.contains("invalid webhook signature"));
     }
@@ -148,7 +156,8 @@ mod tests {
     async fn wrong_signature_is_rejected() {
         let body = r#"{"type":"InvoiceSettled"}"#;
         let signature = sign("some-other-secret", body);
-        let (status, response) = post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
+        let (status, response) =
+            post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(response.contains("invalid webhook signature"));
     }
@@ -169,7 +178,10 @@ mod tests {
     async fn error_responses_never_contain_the_secret() {
         for (body, signature) in [
             (r#"{"type":"InvoiceSettled"}"#, None),
-            (r#"{"type":"InvoiceSettled"}"#, Some(sign("other", r#"{"type":"InvoiceSettled"}"#))),
+            (
+                r#"{"type":"InvoiceSettled"}"#,
+                Some(sign("other", r#"{"type":"InvoiceSettled"}"#)),
+            ),
         ] {
             let (status, response) =
                 post(state_with_secret(Some(SECRET)), body, signature.as_deref()).await;
@@ -191,7 +203,8 @@ mod tests {
     async fn malformed_json_is_a_bad_request_even_when_signed() {
         let body = "{not json";
         let signature = sign(SECRET, body);
-        let (status, response) = post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
+        let (status, response) =
+            post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(response.contains("malformed webhook payload"));
     }
@@ -200,7 +213,8 @@ mod tests {
     async fn missing_event_type_is_a_bad_request() {
         let body = r#"{"invoiceId":"inv1"}"#;
         let signature = sign(SECRET, body);
-        let (status, response) = post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
+        let (status, response) =
+            post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(response.contains("event type"));
     }
@@ -209,7 +223,8 @@ mod tests {
     async fn invoice_event_without_invoice_id_is_a_bad_request() {
         let body = r#"{"type":"InvoiceSettled"}"#;
         let signature = sign(SECRET, body);
-        let (status, response) = post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
+        let (status, response) =
+            post(state_with_secret(Some(SECRET)), body, Some(&signature)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(response.contains("invoiceId"));
     }

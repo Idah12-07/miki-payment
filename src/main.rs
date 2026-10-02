@@ -32,9 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
 
     if config.btcpay.set_count() > 0 && !config.btcpay.is_complete() {
-        tracing::warn!(
-            "BTCPAY_* is only partially set; Bitcoin integration stays disabled"
-        );
+        tracing::warn!("BTCPAY_* is only partially set; Bitcoin integration stays disabled");
     }
 
     // Build the shared BTCPay client exactly once. Never log its

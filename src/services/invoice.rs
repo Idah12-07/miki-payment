@@ -161,7 +161,9 @@ fn currency_decimals(currency: &str) -> Option<u32> {
 /// itself (see [`BtcpayError::CurrencyUnsupported`]).
 pub(crate) fn minor_to_major(amount: i64, currency: &str) -> Result<String, ApiError> {
     let decimals = currency_decimals(currency).ok_or_else(|| {
-        ApiError::BadRequest(format!("currency {currency} is not supported for invoicing"))
+        ApiError::BadRequest(format!(
+            "currency {currency} is not supported for invoicing"
+        ))
     })?;
 
     let factor = 10i64.pow(decimals);
@@ -214,9 +216,9 @@ pub(crate) fn map_btcpay_error(err: BtcpayError) -> ApiError {
         BtcpayError::Provider { status } => {
             ApiError::ProviderUnavailable(format!("btcpay returned HTTP {status}"))
         }
-        BtcpayError::Rejected { status, detail } => {
-            ApiError::PaymentProvider(format!("btcpay rejected invoice creation ({status}): {detail}"))
-        }
+        BtcpayError::Rejected { status, detail } => ApiError::PaymentProvider(format!(
+            "btcpay rejected invoice creation ({status}): {detail}"
+        )),
         BtcpayError::InvalidResponse(detail) => {
             ApiError::PaymentProvider(format!("malformed btcpay response: {detail}"))
         }
@@ -294,9 +296,15 @@ pub async fn create_for_order(
     }
 
     let invoice_number = new_invoice_number();
-    let placeholder_id =
-        invoice::insert_placeholder(&mut tx, order_id, &invoice_number, order.amount, &order.currency, now)
-            .await?;
+    let placeholder_id = invoice::insert_placeholder(
+        &mut tx,
+        order_id,
+        &invoice_number,
+        order.amount,
+        &order.currency,
+        now,
+    )
+    .await?;
     // Lock released here. Nothing database-related is held from now
     // until step 3.
     tx.commit().await?;
@@ -335,9 +343,14 @@ pub async fn create_for_order(
     let expires_at = created.expiration_time.and_then(unix_to_utc);
 
     let mut claim_tx = pool.begin().await?;
-    let claim_result =
-        invoice::claim_btcpay(&mut claim_tx, placeholder_id, &created.id, &created.checkout_link, expires_at)
-            .await;
+    let claim_result = invoice::claim_btcpay(
+        &mut claim_tx,
+        placeholder_id,
+        &created.id,
+        &created.checkout_link,
+        expires_at,
+    )
+    .await;
 
     let claimed = match claim_result {
         Ok(claimed) => claimed,
@@ -505,16 +518,34 @@ mod tests {
 
     #[test]
     fn active_unexpired_invoice_is_reused() {
-        let inv = invoice_row(7, "pending", Some("btcpay-1"), Some(now() + chrono::Duration::minutes(30)), now());
+        let inv = invoice_row(
+            7,
+            "pending",
+            Some("btcpay-1"),
+            Some(now() + chrono::Duration::minutes(30)),
+            now(),
+        );
         assert_eq!(
             decide_invoice_action(Some(inv), now()),
-            InvoiceDecision::Reuse(invoice_row(7, "pending", Some("btcpay-1"), Some(now() + chrono::Duration::minutes(30)), now()))
+            InvoiceDecision::Reuse(invoice_row(
+                7,
+                "pending",
+                Some("btcpay-1"),
+                Some(now() + chrono::Duration::minutes(30)),
+                now()
+            ))
         );
     }
 
     #[test]
     fn expired_invoice_is_not_reused() {
-        let inv = invoice_row(8, "pending", Some("btcpay-1"), Some(now() - chrono::Duration::minutes(1)), now());
+        let inv = invoice_row(
+            8,
+            "pending",
+            Some("btcpay-1"),
+            Some(now() - chrono::Duration::minutes(1)),
+            now(),
+        );
         assert_eq!(
             decide_invoice_action(Some(inv), now()),
             InvoiceDecision::CreateFresh

@@ -31,9 +31,7 @@ use serde::Deserialize;
 use sha2::Sha256;
 use sqlx::{MySql, MySqlPool, Transaction};
 
-use crate::btcpay::{
-    AuthorizedEvents, BtcpayClient, BtcpayError, BtcpayInvoice, WebhookRequest,
-};
+use crate::btcpay::{AuthorizedEvents, BtcpayClient, BtcpayError, BtcpayInvoice, WebhookRequest};
 use crate::error::ApiError;
 use crate::models::{invoice, order, payment, transaction as ledger};
 use crate::services::invoice::{map_btcpay_error, minor_to_major};
@@ -470,8 +468,15 @@ pub async fn process_event(
         .and_then(|p| p.id.as_deref())
         .and_then(sanitize_txid);
 
-    let (payment_id, payment_changed) =
-        apply_payment(&mut tx, &local, target, method.as_deref(), txid.as_deref(), now).await?;
+    let (payment_id, payment_changed) = apply_payment(
+        &mut tx,
+        &local,
+        target,
+        method.as_deref(),
+        txid.as_deref(),
+        now,
+    )
+    .await?;
 
     // The ledger entry is written exactly once: only when this delivery
     // is the one that moves the invoice to `paid`.
@@ -690,8 +695,16 @@ mod tests {
         let body = b"what do ya want for nothing?";
         let signature = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
         assert!(verify_signature("Jefe", body, Some(signature)));
-        assert!(verify_signature("Jefe", body, Some(&format!("sha256={signature}"))));
-        assert!(verify_signature("Jefe", body, Some(&format!("SHA256={signature}"))));
+        assert!(verify_signature(
+            "Jefe",
+            body,
+            Some(&format!("sha256={signature}"))
+        ));
+        assert!(verify_signature(
+            "Jefe",
+            body,
+            Some(&format!("SHA256={signature}"))
+        ));
     }
 
     #[test]
@@ -714,7 +727,11 @@ mod tests {
         assert!(!verify_signature("s", b"{}", Some("sha256=")));
         assert!(!verify_signature("s", b"{}", Some("not-hex-at-all")));
         assert!(!verify_signature("s", b"{}", Some("abc"))); // odd length
-        assert!(!verify_signature("s", b"{}", Some("zz".repeat(32).as_str())));
+        assert!(!verify_signature(
+            "s",
+            b"{}",
+            Some("zz".repeat(32).as_str())
+        ));
     }
 
     #[test]
@@ -862,7 +879,10 @@ mod tests {
     #[test]
     fn payment_statuses_follow_the_target() {
         assert_eq!(desired_payment_status(Target::Pending), None);
-        assert_eq!(desired_payment_status(Target::Processing), Some("processing"));
+        assert_eq!(
+            desired_payment_status(Target::Processing),
+            Some("processing")
+        );
         assert_eq!(desired_payment_status(Target::Paid), Some("confirmed"));
         assert_eq!(desired_payment_status(Target::Expired), Some("failed"));
         assert_eq!(desired_payment_status(Target::Invalid), Some("failed"));
@@ -894,7 +914,10 @@ mod tests {
     #[test]
     fn payment_ids_are_sanitised_before_storage() {
         assert_eq!(sanitize_txid("a1b2c3").as_deref(), Some("a1b2c3"));
-        assert_eq!(sanitize_txid("btc:txid-1_2").as_deref(), Some("btc:txid-1_2"));
+        assert_eq!(
+            sanitize_txid("btc:txid-1_2").as_deref(),
+            Some("btc:txid-1_2")
+        );
         assert_eq!(sanitize_txid(""), None);
         assert_eq!(sanitize_txid("has space"), None);
         assert_eq!(sanitize_txid("bad'\"chars"), None);

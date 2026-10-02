@@ -111,7 +111,10 @@ pub async fn find_detail(pool: &MySqlPool, id: i64) -> Result<OrderDetail, ApiEr
     let user = user::find_by_id(pool, order.user_id)
         .await?
         .ok_or_else(|| {
-            ApiError::Internal(format!("order {id} references missing user {}", order.user_id))
+            ApiError::Internal(format!(
+                "order {id} references missing user {}",
+                order.user_id
+            ))
         })?;
 
     let invoices = invoice::list_by_order(pool, id).await?;

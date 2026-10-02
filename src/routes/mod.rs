@@ -1,4 +1,3 @@
-
 //! HTTP routing.
 
 mod health;
@@ -27,4 +26,3 @@ fn v1_router() -> Router<AppState> {
         .route("/orders/{id}", get(orders::get_order))
         .route("/orders/{id}/invoice", post(orders::create_invoice))
 }
-

@@ -143,8 +143,9 @@ impl BtcpayClient {
         let api_key = api_key.trim();
 
         if base_url.is_empty() || store_id.is_empty() || api_key.is_empty() {
-            return Err("BTCPAY_URL, BTCPAY_STORE_ID and BTCPAY_API_KEY must all be non-empty"
-                .to_string());
+            return Err(
+                "BTCPAY_URL, BTCPAY_STORE_ID and BTCPAY_API_KEY must all be non-empty".to_string(),
+            );
         }
 
         let url = reqwest::Url::parse(base_url).map_err(|_| "BTCPAY_URL is not a valid URL")?;
@@ -188,14 +189,15 @@ impl BtcpayClient {
     }
 
     fn invoices_url(&self) -> String {
-        format!(
-            "{}/api/v1/stores/{}/invoices",
-            self.base_url, self.store_id
-        )
+        format!("{}/api/v1/stores/{}/invoices", self.base_url, self.store_id)
     }
 
     fn invoice_url(&self, invoice_id: &str) -> Result<String, BtcpayError> {
-        Ok(format!("{}/{}", self.invoices_url(), path_segment(invoice_id)?))
+        Ok(format!(
+            "{}/{}",
+            self.invoices_url(),
+            path_segment(invoice_id)?
+        ))
     }
 
     fn webhooks_url(&self) -> String {
@@ -466,7 +468,10 @@ mod tests {
     #[test]
     fn trailing_slash_is_normalized() {
         let c = BtcpayClient::new("https://btcpay.example///", "s", "k").unwrap();
-        assert_eq!(c.invoices_url(), "https://btcpay.example/api/v1/stores/s/invoices");
+        assert_eq!(
+            c.invoices_url(),
+            "https://btcpay.example/api/v1/stores/s/invoices"
+        );
     }
 
     // --- configuration validation --------------------------------------
@@ -660,7 +665,11 @@ mod tests {
         assert_eq!(json["automaticRedelivery"], true);
         assert_eq!(json["authorizedEvents"]["everything"], true);
         // never leak a partial/disabled default
-        assert!(json.get("authorizedEvents").unwrap().get("specificEvents").is_none());
+        assert!(json
+            .get("authorizedEvents")
+            .unwrap()
+            .get("specificEvents")
+            .is_none());
     }
 
     #[test]

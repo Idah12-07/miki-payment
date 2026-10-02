@@ -98,10 +98,7 @@ pub async fn create_invoice(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<(StatusCode, Json<InvoicePaymentInfo>), ApiError> {
-    let btcpay = state
-        .btcpay
-        .as_ref()
-        .ok_or(ApiError::NotConfigured)?;
+    let btcpay = state.btcpay.as_ref().ok_or(ApiError::NotConfigured)?;
 
     let (info, created) = services::invoice::create_for_order(&state.pool, btcpay, id).await?;
 

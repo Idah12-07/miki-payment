@@ -126,9 +126,7 @@ fn read_port(name: &'static str, default: u16) -> Result<u16, ConfigError> {
 fn read_server_port() -> Result<u16, ConfigError> {
     for name in ["PORT", "SERVER_PORT"] {
         if let Some(value) = read(name)? {
-            return value
-                .parse()
-                .map_err(|_| ConfigError::InvalidVar { name });
+            return value.parse().map_err(|_| ConfigError::InvalidVar { name });
         }
     }
     Ok(3000)
@@ -267,11 +265,19 @@ mod tests {
         }
         {
             let _env = PortEnv::set(Some("  "), Some("9000"));
-            assert_eq!(read_server_port().unwrap(), 9000, "blank PORT falls through");
+            assert_eq!(
+                read_server_port().unwrap(),
+                9000,
+                "blank PORT falls through"
+            );
         }
         {
             let _env = PortEnv::set(None, Some("9000"));
-            assert_eq!(read_server_port().unwrap(), 9000, "SERVER_PORT is the fallback");
+            assert_eq!(
+                read_server_port().unwrap(),
+                9000,
+                "SERVER_PORT is the fallback"
+            );
         }
         {
             let _env = PortEnv::set(None, None);
@@ -280,7 +286,10 @@ mod tests {
         {
             let _env = PortEnv::set(Some("not-a-number"), None);
             assert!(
-                matches!(read_server_port(), Err(ConfigError::InvalidVar { name: "PORT" })),
+                matches!(
+                    read_server_port(),
+                    Err(ConfigError::InvalidVar { name: "PORT" })
+                ),
                 "an unparsable PORT is an error, not a silent fallback"
             );
         }

@@ -29,12 +29,10 @@ pub async fn list_by_order<'e, E>(executor: E, order_id: i64) -> Result<Vec<Invo
 where
     E: sqlx::Executor<'e, Database = MySql>,
 {
-    sqlx::query_as::<_, Invoice>(
-        "SELECT * FROM invoices WHERE order_id = ? ORDER BY id ASC",
-    )
-    .bind(order_id)
-    .fetch_all(executor)
-    .await
+    sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE order_id = ? ORDER BY id ASC")
+        .bind(order_id)
+        .fetch_all(executor)
+        .await
 }
 
 /// Most recent invoice row for an order, including in-flight placeholders
@@ -135,12 +133,10 @@ pub async fn lock_by_btcpay_id(
     tx: &mut sqlx::Transaction<'_, MySql>,
     btcpay_invoice_id: &str,
 ) -> Result<Option<Invoice>, sqlx::Error> {
-    sqlx::query_as::<_, Invoice>(
-        "SELECT * FROM invoices WHERE btcpay_invoice_id = ? FOR UPDATE",
-    )
-    .bind(btcpay_invoice_id)
-    .fetch_optional(tx.as_mut())
-    .await
+    sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE btcpay_invoice_id = ? FOR UPDATE")
+        .bind(btcpay_invoice_id)
+        .fetch_optional(tx.as_mut())
+        .await
 }
 
 /// Write a new status (and `paid_at`) for a locked invoice.
