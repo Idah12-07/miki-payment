@@ -1,3 +1,4 @@
+
 //! HTTP routing.
 
 mod health;
@@ -11,6 +12,7 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/", get(|| async { "Miki Payment API is running" }))
         .route("/health", get(health::health))
         // Inbound integration endpoint: authenticated by BTCPay's
         // signature, not by a client session, so it lives outside the
@@ -23,8 +25,6 @@ fn v1_router() -> Router<AppState> {
     Router::new()
         .route("/orders", post(orders::create_order))
         .route("/orders/{id}", get(orders::get_order))
-        .route(
-            "/orders/{id}/invoice",
-            post(orders::create_invoice),
-        )
+        .route("/orders/{id}/invoice", post(orders::create_invoice))
 }
+
